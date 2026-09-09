@@ -1,0 +1,7 @@
+fastapi==0.141.1
+uvicorn==0.52.4
+httpx==0.28.1
+pydantic==2.13.5
+python-multipart==0.0.32
+playwright==1.62.0
+patchright==1.62.3
