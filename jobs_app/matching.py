@@ -9,13 +9,19 @@ from urllib.parse import parse_qs, urlsplit
 import httpx
 
 
+def normalize_salary(text: str) -> str:
+    """Convert BOSS salary font digits to portable text, preserving units/bonuses."""
+    return str(text or "").translate({start + digit: str(digit)
+                                    for start in (0xE031, 0xE8F0) for digit in range(10)})
+
+
 def parse_salary(text: str) -> tuple[float | None, float | None]:
     """Return monthly yuan; annual / 12, daily * 21.75, bonus months excluded.
 
     Missing or unrecognized salaries return (None, None). Open ranges preserve
     their unknown bound. Hourly pay is deliberately unknown without work hours.
     """
-    value = unicodedata.normalize("NFKC", str(text or "")).lower()
+    value = unicodedata.normalize("NFKC", normalize_salary(text)).lower()
     value = re.sub(r"\s+|,|，", "", value)
     value = re.sub(r"[·•・]?\d+(?:\.\d+)?薪", "", value)
     if not value or "面议" in value or re.search(r"/(?:小时|时|h)|每小时|时薪", value):

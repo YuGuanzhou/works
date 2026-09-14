@@ -9,7 +9,7 @@
 <p align="center">四平台求职管理 · AI 职位匹配 · 先预览后投递 · 本地数据存储</p>
 
 <p align="center">
-  <a href="#version-updates"><img src="https://img.shields.io/badge/Version-1.0.3-0e7464?style=flat-square" alt="当前版本 1.0.3"></a>
+  <a href="#version-updates"><img src="https://img.shields.io/badge/Version-1.0.5-0e7464?style=flat-square" alt="当前版本 1.0.5"></a>
   <a href="#quick-start"><img src="https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat-square&amp;logo=python&amp;logoColor=white" alt="Python 3.11 及以上"></a>
   <a href="#quick-start"><img src="https://img.shields.io/badge/Platform-Windows-0078D4?style=flat-square" alt="Windows 本地运行"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Non--Commercial-64748B?style=flat-square" alt="GET JOBS 非商业许可证"></a>
@@ -28,7 +28,7 @@
 
 程序采用 **FastAPI + SQLite + 浏览器自动化**，无需 Java、Node.js 构建或外部数据库。Windows 可使用单文件 EXE，也可通过 Python 源码启动。
 
-当前版本 **v1.0.3** 修复 BOSS 沟通弹窗遮挡导致的点击超时：进入完整聊天页后发送自定义招呼语和图片简历，并等待消息发送状态确认。继续保留全国城市映射。完整变化见[版本更新](#version-updates)。
+当前版本 **v1.0.5** 修复 BOSS 薪资数字显示成方框：采集与筛选统一还原数字，启动时修复已有薪资记录。继续包含完整聊天页发送与弹窗事件回调修复，并保留全国城市映射。完整变化见[版本更新](#version-updates)。
 
 > **验证范围：** 已有本地测试、公开登录页观察和 EXE 启动检查记录；真实账号登录后的搜索、投递、图片送达和外部 AI 服务仍需分别验收。下方截图来自 v1.0.1 源码的隔离空数据环境。
 
@@ -115,7 +115,7 @@
 
 ### 方式一：Windows EXE
 
-已有构建时，双击 `dist/Get-Jobs-Python-1.0.3.exe` 即可启动，无需另装 Python。程序自动打开管理页面，仍需本机可用的 Chrome / Edge 或已安装的 Chromium。
+已有构建时，双击 `dist/Get-Jobs-Python-1.0.5.exe` 即可启动，无需另装 Python。程序自动打开管理页面，仍需本机可用的 Chrome / Edge 或已安装的 Chromium。
 
 - **管理页面：**[http://127.0.0.1:8765](http://127.0.0.1:8765)
 - **交互式接口文档：**[http://127.0.0.1:8765/docs](http://127.0.0.1:8765/docs)
@@ -184,10 +184,20 @@
 
 | 版本 | 日期 | 主要变化 | 状态与证据 |
 | --- | --- | --- | --- |
-| **v1.0.3** | 2026-09-14 | BOSS 完整聊天页发送文字与图片；确认消息发送状态；保留待核实停机保护 | **当前版本** · 真实账号文字与图片送达待验收 |
+| **v1.0.5** | 2026-09-14 | 修复 BOSS 薪资数字编码；同步修复历史记录与薪资筛选 | **当前版本** · [验证记录](docs/VALIDATION-1.0.5.md) |
+| **v1.0.4** | 2026-09-14 | 修复 BOSS 投递入口的弹窗事件回调异常 | 历史版本 · [验证记录](docs/VALIDATION-1.0.4.md) |
+| **v1.0.3** | 2026-09-14 | BOSS 完整聊天页发送文字与图片；确认消息发送状态；保留待核实停机保护 | 历史版本 · [验证记录](docs/VALIDATION-1.0.3.md) |
 | **v1.0.2** | 2026-09-14 | BOSS 全国城市映射；城市简称与全称兼容；城市代码可选覆盖 | 历史版本 · [验证记录](docs/VALIDATION-1.0.2.md) |
 | **v1.0.1** | 2026-09-09 | BOSS 驱动与登录流程修复；导航循环检测；识别同端口旧版服务 | 历史版本 · [验证记录](docs/VALIDATION-1.0.1.md) |
 | **v1.0.0** | 2026-09-09 | 四平台求职助手、中文管理界面、AI 筛选、本地记录与单文件 EXE | 历史版本 · [验证记录](docs/VALIDATION.md) |
+
+### v1.0.5 · BOSS 薪资显示修复
+
+将 BOSS 专用字体中的薪资数字转换为普通数字，保留 `K`、计薪单位及 `·13薪` 等后缀。新采集、月薪筛选、记录列表、详情和 CSV 使用正常薪资文本；启动时仅修复历史记录的薪资字段，保留投递状态、评分与时间。
+
+### v1.0.4 · BOSS 弹窗事件回调修复
+
+修复注册弹窗事件时出现的 `_pw_impl_instance_` 异常：使用驱动支持的普通函数回调，并将注册操作纳入页面清理范围。新增从真实 Patchright `apply()` 入口执行的离线回归，覆盖当前页跳转和新标签页跳转。
 
 ### v1.0.3 · BOSS 完整聊天页发送修复
 
@@ -258,7 +268,7 @@ Windows 上 AI Key 与企业微信 webhook 使用当前用户的 DPAPI 加密，
 powershell -ExecutionPolicy Bypass -File .\build.ps1
 ```
 
-构建输出：`dist/Get-Jobs-Python-1.0.3.exe`。构建脚本从应用版本常量读取文件名，收集管理界面及 Playwright / Patchright 驱动，不包含个人数据或原始参考仓库。
+构建输出：`dist/Get-Jobs-Python-1.0.5.exe`。构建脚本从应用版本常量读取文件名，收集管理界面及 Playwright / Patchright 驱动，不包含个人数据或原始参考仓库。
 
 ```text
 works/

@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from .config import defaults
+from .matching import normalize_salary
 
 
 def now():
@@ -82,6 +83,11 @@ class Store:
                 db.execute("INSERT INTO settings VALUES (1,?)", (json.dumps(defaults(), ensure_ascii=False),))
             db.execute("UPDATE jobs SET status='unconfirmed', reason='上次运行在投递中断开，请先到平台核实，程序不会自动重投' WHERE status='submitting'")
             db.execute("UPDATE delivery_ledger SET status='unconfirmed' WHERE status='submitting'")
+            # Repair previously captured font digits without changing delivery history or ordering.
+            for row in db.execute("SELECT id,salary FROM jobs WHERE platform='boss'").fetchall():
+                salary = normalize_salary(row["salary"])
+                if salary != row["salary"]:
+                    db.execute("UPDATE jobs SET salary=? WHERE id=?", (salary, row["id"]))
         if os.name != "nt":
             self.path.chmod(0o600)
 
@@ -147,12 +153,15 @@ class Store:
             return db.execute("DELETE FROM blacklist WHERE id=?", (item_id,)).rowcount
 
     def save_job(self, job, status, reason="", score=None, greeting=""):
+        salary = job.get("salary", "")
+        if job["platform"] == "boss":
+            salary = normalize_salary(salary)
         with self.connect() as db:
             db.execute("""INSERT INTO jobs(platform,external_id,title,company,city,salary,url,description,status,reason,score,greeting,created_at,updated_at)
                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(platform,external_id) DO UPDATE SET
                 title=excluded.title,company=excluded.company,city=excluded.city,salary=excluded.salary,url=excluded.url,
                 description=excluded.description,status=excluded.status,reason=excluded.reason,score=excluded.score,greeting=excluded.greeting,updated_at=excluded.updated_at""",
-                (job["platform"], job["external_id"], job["title"], job["company"], job.get("city", ""), job.get("salary", ""), job.get("url", ""), job.get("description", ""), status, reason, score, greeting, now(), now()))
+                (job["platform"], job["external_id"], job["title"], job["company"], job.get("city", ""), salary, job.get("url", ""), job.get("description", ""), status, reason, score, greeting, now(), now()))
             return db.execute("SELECT id FROM jobs WHERE platform=? AND external_id=?", (job["platform"], job["external_id"])).fetchone()[0]
 
     def job(self, job_id):

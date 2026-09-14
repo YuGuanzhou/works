@@ -16,7 +16,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urljoin, urlsplit
 
 from .cities import BOSS_CITY_ALIASES, BOSS_CITY_CODES
-from .matching import parse_salary
+from .matching import normalize_salary, parse_salary
 
 
 PLATFORMS = {
@@ -369,13 +369,16 @@ class BrowserAutomation:
 
     def _normalize_job(self, platform: str, data: dict, city: str) -> dict:
         url = _safe_url(platform, data["url"])
-        salary_min, salary_max = parse_salary(data.get("salary", ""))
+        salary = str(data.get("salary") or "")
+        if platform == "boss":
+            salary = normalize_salary(salary)
+        salary_min, salary_max = parse_salary(salary)
         raw_city = str(data.get("city") or city)
         if raw_city.isdigit():
             raw_city = city
         return {"platform": platform, "external_id": str(data.get("external_id") or _job_id(url)),
                 "title": str(data.get("title") or ""), "company": str(data.get("company") or ""),
-                "city": raw_city, "salary": str(data.get("salary") or ""), "salary_min": salary_min,
+                "city": raw_city, "salary": salary, "salary_min": salary_min,
                 "salary_max": salary_max, "url": url, "description": str(data.get("description") or ""),
                 "hr_active": str(data.get("hr_active") or ""), "hr_status": str(data.get("hr_active") or ""),
                 "headhunter": bool(data.get("headhunter")),
@@ -611,71 +614,135 @@ class BrowserAutomation:
                 pass
         return {"status": "unconfirmed", "detail": "已点击目标职位按钮，未观察到明确投递成功信号，请在平台核实，勿直接重试"}
 
-    async def _boss_message(self, page, greeting: str, image_path: str | None) -> dict:
-        box = page.locator("div#chat-input.chat-input[contenteditable='true'], textarea.input-area").first
-        try:
-            await box.wait_for(state="visible", timeout=10000)
-        except Exception:
-            await self._guard(page, "boss")
-            return {"status": "unconfirmed", "detail": "已点击立即沟通，但聊天输入框未出现，请在平台核实"}
-        if not greeting.strip():
-            return {"status": "unconfirmed", "detail": "已打开沟通窗口；招呼语为空，未发送自定义消息"}
-        # Count exact visible text outside the editor before/after sending to avoid stale-message success.
-        messages = page.get_by_text(greeting.strip(), exact=True)
-        before = await messages.count()
-        await box.fill(greeting.strip())
-        send = await self._visible(page, "div.send-message, button[type='send'].btn-send, button.btn-send")
-        if not send:
-            return {"status": "unconfirmed", "detail": "招呼语已填写，但未找到发送按钮，请在浏览器检查"}
-        await send.click()
-        confirmed = False
-        for _ in range(20):
+    async def _boss_open_chat(self, page, popups=None):
+        """Follow the platform's target-conversation entry before sending custom content."""
+        editor = "div#chat-input.chat-input[contenteditable='true']"
+        transition_started = False
+        for _ in range(35):
+            candidates = [page] + list(popups or [])
+            for candidate in reversed(candidates):
+                if candidate.is_closed():
+                    continue
+                try:
+                    _safe_url("boss", candidate.url)
+                except ValueError:
+                    continue
+                parts = urlsplit(candidate.url)
+                if parts.path.startswith("/web/geek/chat"):
+                    await self._guard(candidate, "boss")
+                    if await self._visible(candidate, editor):
+                        return candidate
+                await self._guard(candidate, "boss")
+                if transition_started:
+                    continue
+                # Some versions navigate directly; others show the native greeting confirmation.
+                confirm = await self._visible(candidate, ".greet-boss-pop .dialog-footer .btn-sure")
+                if confirm and "继续沟通" in await confirm.inner_text():
+                    transition_started = True
+                    await confirm.click(timeout=5000, no_wait_after=True)
+                    continue
+                dialog = await self._visible(candidate, ".startchat-dialog")
+                if dialog:
+                    transition_started = True
+                    close = await self._visible(dialog, ".dialog-title .close, i.icon-close")
+                    if not close:
+                        raise RuntimeError("文字聊天弹窗缺少关闭按钮，未进入完整聊天页，未发送自定义文字或图片")
+                    try:
+                        await close.click(timeout=3000, no_wait_after=True)
+                        await dialog.wait_for(state="hidden", timeout=3000)
+                    except Exception as error:
+                        raise RuntimeError("文字聊天弹窗未能关闭，未点击被遮挡的聊天入口；未发送自定义文字或图片") from error
+                    chat = await self._visible(candidate, "a.btn-startchat, a.op-btn-chat")
+                    if not chat:
+                        raise RuntimeError("文字聊天弹窗已关闭，但未找到目标职位的聊天入口")
+                    await chat.click(timeout=5000, no_wait_after=True)
             await page.wait_for_timeout(300)
-            body = await self._guard(page, "boss")
-            if "发送失败" in body:
-                return {"status": "failed", "detail": "平台提示消息发送失败"}
-            editor_value = await box.evaluate("el => el.value === undefined ? el.innerText : el.value")
-            if not editor_value.strip() and await messages.count() > before:
-                confirmed = True
-                break
-        if not confirmed:
-            return {"status": "unconfirmed", "detail": "已点击发送，未同时观察到输入框清空和新增消息，请在平台核实"}
-        detail = "已观察到招呼语出现在聊天记录中"
-        if image_path:
-            return await self._boss_image(page, image_path)
-        return {"status": "submitted", "detail": detail}
+        raise RuntimeError("立即沟通后未进入目标完整聊天页，请检查登录、弹窗或网络状态；未发送自定义文字或图片")
+
+    async def _boss_receipts(self, page, kind: str, text: str = "") -> list[dict]:
+        # Official chat UI: data-mid identifies a message; delivery/read follow server acknowledgement.
+        # Return only IDs/statuses, never conversation content or image URLs.
+        return await page.locator("li.message-item.item-myself[data-mid]").evaluate_all(r"""(rows, target) => {
+            const norm = value => (value || '').replace(/[\u200b-\u200d\ufeff]/g, '').replace(/\s+/g, ' ').trim();
+            return rows.filter(row => {
+                if (target.kind === 'image') return row.querySelector('.message-image-content img.message-image');
+                const content = row.querySelector('.text .text-content');
+                return content && norm(content.innerText || content.textContent) === norm(target.text);
+            }).map(row => ({id: row.getAttribute('data-mid'),
+                state: row.querySelector('.message-status.status-error') ? 'failed' :
+                    row.querySelector('.message-status.status-delivery, .message-status.status-read') ? 'sent' : 'pending'
+            }));
+        }""", {"kind": kind, "text": text})
+
+    async def _boss_message(self, page, greeting: str, image_path: str | None, popups=None) -> dict:
+        stage = "进入完整聊天页"
+        try:
+            page = await self._boss_open_chat(page, popups)
+            if not greeting.strip():
+                return {"status": "unconfirmed", "detail": "已打开完整聊天页；招呼语为空，未发送自定义消息"}
+            stage = "填写自定义招呼语"
+            box = page.locator("div#chat-input.chat-input[contenteditable='true']").first
+            previous = await self._boss_receipts(page, "text", greeting)
+            before = {row["id"] for row in previous}
+            await box.fill(greeting.strip(), timeout=5000)
+            # BOSS enables sending after a debounced input observer, using a CSS class, not disabled=.
+            stage = "等待文字发送按钮可用"
+            send = page.locator("button[type='send'].btn-send:not(.disabled)").first
+            await send.wait_for(state="visible", timeout=5000)
+            stage = "发送自定义招呼语"
+            await send.click(timeout=5000, no_wait_after=True)
+            for _ in range(40):
+                await page.wait_for_timeout(300)
+                await self._guard(page, "boss")
+                receipts = await self._boss_receipts(page, "text", greeting)
+                # A server acknowledgement can rename an old client ID; require a newly appended row too.
+                if len(receipts) > len(previous):
+                    row = receipts[-1]
+                    if row["id"] and row["id"] not in before:
+                        if row["state"] == "failed":
+                            return {"status": "failed", "detail": "平台提示本次自定义文字发送失败；未继续发送图片"}
+                        if row["state"] == "sent":
+                            if image_path:
+                                return await self._boss_image(page, image_path)
+                            return {"status": "submitted", "detail": "完整聊天页已确认本次自定义文字送达或已读"}
+            return {"status": "unconfirmed", "detail": "已点击文字发送，未收到本次消息的送达或已读确认；请在平台核实，勿重复发送"}
+        except Exception as error:
+            # A click can take effect before timing out; stage diagnostics must not cause a retry.
+            detail = str(error) if isinstance(error, RuntimeError) else f"{stage}超时或失败（{type(error).__name__}）"
+            return {"status": "unconfirmed", "detail": detail[:250] + "；已保留页面，请核实原生问候和自定义消息的发送情况"}
 
     async def _boss_image(self, page, image_path: str) -> dict:
-        prefix = "招呼语已出现在聊天记录中；"
+        prefix = "自定义文字已确认送达；"
         toolbar = page.locator("div.btn-sendimg[aria-label='发送图片'], div[aria-label='发送图片'].btn-sendimg").first
         upload = toolbar.locator("input[type='file'][accept*='image']").first
-        if not await toolbar.count():
-            # Upstream opens the full conversation before accessing the image toolbar.
-            chat = await self._visible(page, "a.btn-startchat, a.op-btn-chat")
-            if chat:
-                await chat.click()
-                try:
-                    await toolbar.wait_for(state="visible", timeout=10000)
-                except Exception:
-                    return {"status": "unconfirmed", "detail": prefix + "未能打开图片发送工具栏，图片未发送"}
+        stage = "等待图片工具栏"
         try:
+            await toolbar.wait_for(state="visible", timeout=5000)
+            previous = await self._boss_receipts(page, "image")
+            before = {row["id"] for row in previous}
+            stage = "上传图片"
             if await upload.count():
-                await upload.set_input_files(image_path)
-            elif await toolbar.count():
-                async with page.expect_file_chooser(timeout=5000) as pending:
-                    await toolbar.click()
-                await (await pending.value).set_files(image_path)
+                await upload.set_input_files(image_path, timeout=10000)
             else:
-                return {"status": "unconfirmed", "detail": prefix + "未找到图片上传入口，图片未发送"}
+                async with page.expect_file_chooser(timeout=5000) as pending:
+                    await toolbar.click(timeout=5000)
+                await (await pending.value).set_files(image_path)
+            stage = "等待图片送达"
             clicked_preview = False
             for _ in range(40):
                 await page.wait_for_timeout(400)
                 await self._guard(page, "boss")
+                receipts = await self._boss_receipts(page, "image")
+                if len(receipts) > len(previous):
+                    row = receipts[-1]
+                    if row["id"] and row["id"] not in before:
+                        if row["state"] == "sent":
+                            return {"status": "submitted", "detail": prefix + "本次图片消息已确认送达或已读"}
+                        if row["state"] == "failed":
+                            return {"status": "unconfirmed", "detail": prefix + "本次图片消息发送失败，请在平台检查；不会重复发送文字"}
                 for alert in await page.locator(".dialog-con, [role='alert'], .toast, .message-tip").all():
                     if await alert.is_visible():
                         message = (await alert.inner_text()).strip()
-                        if re.search(r"图片.{0,4}发送成功|发送图片成功", message):
-                            return {"status": "submitted", "detail": prefix + "平台提示图片发送成功"}
                         if re.search(r"图片.{0,4}失败|上传失败|图片过大|格式不支持", message):
                             return {"status": "unconfirmed", "detail": prefix + "图片发送失败，请在平台检查"}
                 # Only confirm an image preview dialog, never another job or a generic page button.
@@ -685,12 +752,12 @@ class BrowserAutomation:
                         if await preview.is_visible() and re.search(r"发送图片|图片预览", await preview.inner_text()):
                             send = await self._visible(preview, "button[type='send'], button:has-text('发送')")
                             if send and not await send.is_disabled():
-                                await send.click()
+                                await send.click(timeout=5000, no_wait_after=True)
                                 clicked_preview = True
                                 break
             return {"status": "unconfirmed", "detail": prefix + "图片已选择并等待上传/发送，未获得图片送达确认；已保留浏览器页面，请在平台核实"}
-        except Exception:
-            return {"status": "unconfirmed", "detail": prefix + "图片上传或发送未完成确认，已保留浏览器页面，请在平台核实"}
+        except Exception as error:
+            return {"status": "unconfirmed", "detail": prefix + f"{stage}未完成（{type(error).__name__}），已保留页面；不会重复发送文字"}
 
     async def apply(self, job: dict, greeting: str, image_path: str | None = None) -> dict:
         platform = job["platform"]
@@ -699,10 +766,14 @@ class BrowserAutomation:
             return {"status": "failed", "detail": "图片简历不存在或不是支持的图片文件"}
         context = await self._context(platform)
         page = await context.new_page()
+        popups = []
         clicked = False
         outcome = None
         keep_open = False
         try:
+            if platform == "boss":
+                # The driver stores wrapper metadata on callbacks; built-in list.append has no __dict__.
+                page.on("popup", lambda popup: popups.append(popup))
             await page.goto(url, wait_until="domcontentloaded")
             await page.wait_for_timeout(1000)
             await self._guard(page, platform)
@@ -717,9 +788,9 @@ class BrowserAutomation:
             if await button.is_disabled():
                 return {"status": "failed", "detail": "平台投递按钮不可用"}
             clicked = True  # Even a click timeout can happen after the platform accepted an action.
-            await button.click()
+            await button.click(**({"no_wait_after": True} if platform == "boss" else {}))
             if platform == "boss":
-                outcome = await self._boss_message(page, greeting, image_path)
+                outcome = await self._boss_message(page, greeting, image_path, popups)
             else:
                 outcome = await self._result_after_click(page, platform, button)
             return outcome
@@ -734,7 +805,11 @@ class BrowserAutomation:
         finally:
             # Keep uncertain pages visible so users can complete verification or inspect outcomes.
             if not keep_open and (not clicked or (outcome and outcome["status"] != "unconfirmed")):
-                await page.close()
+                for finished_page in [page] + popups:
+                    try:
+                        await finished_page.close()
+                    except Exception:
+                        self.log("warning", "职位页面关闭失败，已保留本次投递结果，请手动关闭该页", platform)
 
     async def rejected_companies(self, platform: str) -> list[str]:
         if platform != "boss":

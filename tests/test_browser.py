@@ -99,14 +99,22 @@ def test_offline_browser_dom_and_success_evidence(tmp_path):
                 await page.set_content('<button id="apply">申请职位</button><div class="deliver-dialog">申请成功</div>')
                 result = await adapter._result_after_click(fast, "zhilian", page.locator("#apply"))
                 assert result["status"] == "submitted"
-                await page.set_content('''<textarea class="input-area"></textarea><button class="btn-send"
-                    onclick="const t=document.querySelector('textarea');const p=document.createElement('p');p.textContent=t.value;document.body.append(p);t.value=''">发送</button>''')
+                # Fulfilled locally: exercise the full-chat URL without contacting BOSS.
+                await page.route("https://www.zhipin.com/web/geek/chat", lambda route: route.fulfill(body="<html><body></body></html>"))
+                await page.goto("https://www.zhipin.com/web/geek/chat")
+                await page.set_content(r'''<div id="chat-input" class="chat-input" contenteditable="true"></div>
+                    <button type="send" class="btn-send" onclick="const t=document.querySelector('#chat-input');
+                    const row=document.createElement('li');row.className='message-item item-myself';row.dataset.mid='text-new';
+                    row.innerHTML='<div class=text><p><span class=text-content></span></p></div><i class=\'message-status status-delivery\'></i>';
+                    row.querySelector('.text-content').textContent=t.innerText;document.body.append(row);t.innerText=''">发送</button>''')
                 result = await adapter._boss_message(fast, "您好，我擅长 Python。", None)
                 assert result["status"] == "submitted"
                 resume = Path(tmp_path) / "local-fixture.png"
                 resume.write_bytes(b"local test fixture only")
-                await page.set_content('''<div class="btn-sendimg" aria-label="发送图片"><input type="file" accept="image/*"
-                    onchange="document.querySelector('.dialog-con').textContent='图片发送成功'"></div><div class="dialog-con"></div>''')
+                await page.set_content(r'''<div class="btn-sendimg" aria-label="发送图片"><input type="file" accept="image/*"
+                    onchange="const row=document.createElement('li');row.className='message-item item-myself';row.dataset.mid='image-new';
+                    row.innerHTML='<div class=message-image-content><img class=message-image></div><i class=\'message-status status-delivery\'></i>';
+                    document.body.append(row)"></div>''')
                 result = await adapter._boss_image(fast, str(resume))
                 assert result["status"] == "submitted"
                 await page.set_content('<div class="btn-sendimg" aria-label="发送图片"><input type="file" accept="image/*"></div>')
