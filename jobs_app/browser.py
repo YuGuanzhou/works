@@ -15,6 +15,7 @@ from collections import deque
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urljoin, urlsplit
 
+from .cities import BOSS_CITY_ALIASES, BOSS_CITY_CODES
 from .matching import parse_salary
 
 
@@ -98,9 +99,14 @@ def search_cities(platform: str, config: dict) -> list[tuple[str, str]]:
     result = []
     for value in cities:
         city = str(value).strip().removesuffix("市")
-        if city not in CITY_CODES:
+        if platform == "boss":
+            city = BOSS_CITY_ALIASES.get(city, city)
+            code = BOSS_CITY_CODES.get(city)
+        else:
+            code = CITY_CODES[city][index] if city in CITY_CODES else None
+        if code is None:
             raise ValueError(f"{PLATFORMS[platform]['name']} 暂无城市「{city}」的内置映射，请在高级配置提供 city_codes；未扩大到全国")
-        result.append((city, CITY_CODES[city][index]))
+        result.append((city, code))
     return result
 
 

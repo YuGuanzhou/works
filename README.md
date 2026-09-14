@@ -9,7 +9,7 @@
 <p align="center">四平台求职管理 · AI 职位匹配 · 先预览后投递 · 本地数据存储</p>
 
 <p align="center">
-  <a href="#version-updates"><img src="https://img.shields.io/badge/Version-1.0.1-0e7464?style=flat-square" alt="当前版本 1.0.1"></a>
+  <a href="#version-updates"><img src="https://img.shields.io/badge/Version-1.0.3-0e7464?style=flat-square" alt="当前版本 1.0.3"></a>
   <a href="#quick-start"><img src="https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat-square&amp;logo=python&amp;logoColor=white" alt="Python 3.11 及以上"></a>
   <a href="#quick-start"><img src="https://img.shields.io/badge/Platform-Windows-0078D4?style=flat-square" alt="Windows 本地运行"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Non--Commercial-64748B?style=flat-square" alt="GET JOBS 非商业许可证"></a>
@@ -28,9 +28,9 @@
 
 程序采用 **FastAPI + SQLite + 浏览器自动化**，无需 Java、Node.js 构建或外部数据库。Windows 可使用单文件 EXE，也可通过 Python 源码启动。
 
-当前版本 **v1.0.1** 主要完善 BOSS 登录页复用、刷新与重定向异常处理，以及旧版服务识别。完整变化见[版本更新](#version-updates)。
+当前版本 **v1.0.3** 修复 BOSS 沟通弹窗遮挡导致的点击超时：进入完整聊天页后发送自定义招呼语和图片简历，并等待消息发送状态确认。继续保留全国城市映射。完整变化见[版本更新](#version-updates)。
 
-> **验证范围：** 已有本地测试、公开登录页观察和 EXE 启动检查记录；真实账号登录后的搜索、投递、图片送达和外部 AI 服务仍需分别验收。下方截图来自当前源码的隔离空数据环境。
+> **验证范围：** 已有本地测试、公开登录页观察和 EXE 启动检查记录；真实账号登录后的搜索、投递、图片送达和外部 AI 服务仍需分别验收。下方截图来自 v1.0.1 源码的隔离空数据环境。
 
 <a id="features"></a>
 
@@ -115,7 +115,7 @@
 
 ### 方式一：Windows EXE
 
-已有构建时，双击 `dist/Get-Jobs-Python-1.0.1.exe` 即可启动，无需另装 Python。程序自动打开管理页面，仍需本机可用的 Chrome / Edge 或已安装的 Chromium。
+已有构建时，双击 `dist/Get-Jobs-Python-1.0.3.exe` 即可启动，无需另装 Python。程序自动打开管理页面，仍需本机可用的 Chrome / Edge 或已安装的 Chromium。
 
 - **管理页面：**[http://127.0.0.1:8765](http://127.0.0.1:8765)
 - **交互式接口文档：**[http://127.0.0.1:8765/docs](http://127.0.0.1:8765/docs)
@@ -166,7 +166,9 @@
 <details>
 <summary><strong>城市编码、高级筛选与薪资口径</strong></summary>
 
-内置北京、上海、广州、深圳、杭州、成都、南京、武汉、苏州、重庆、天津、西安的四平台城市码。其他城市在高级设置填写对应平台的城市码，数量和城市一一对应；不支持的城市不会自动扩大成全国搜索。
+**BOSS 直聘已内置全国城市映射**，可直接填写“长沙”或“长沙市”，也支持自治州常见简称与全称。数据来自 [BOSS 官方城市列表](https://www.zhipin.com/wapi/zpCommon/data/city.json)，于 2026-09-14 获取，包含 34 个省级分组下的 373 个城市条目，覆盖港澳台条目、自治州、地区和省直管县。
+
+猎聘、前程无忧、智联招聘仍内置北京、上海、广州、深圳、杭州、成都、南京、武汉、苏州、重庆、天津、西安这 12 城的城市码。各平台均可在高级设置选填 `city_codes`，覆盖内置映射或补充未识别城市；填写时使用当前平台的代码，数量和顺序与期望城市一一对应。未识别的城市会提示补充代码，不会自动扩大成全国搜索。
 
 平台高级查询参数使用 JSON 字典，例如 BOSS 的 `experience`、`degree`、`industry`、`scale`、`stage`、`salary`、`jobType`。填写该平台当前筛选 URL 中的值，不混用平台间的城市码或薪资码。关键词和城市参数由专用字段控制。
 
@@ -178,12 +180,26 @@
 
 ## 版本更新
 
-以下按版本列出仓库已有的变更与验证记录。日期采用对应验证文档的记录日期；本次 README 整理不修改应用版本。
+以下按版本列出仓库已有的变更与验证记录，外部平台的实际搜索与投递效果需另行验收。
 
 | 版本 | 日期 | 主要变化 | 状态与证据 |
 | --- | --- | --- | --- |
-| **v1.0.1** | 2026-09-09 | BOSS 驱动与登录流程修复；导航循环检测；识别同端口旧版服务 | **当前版本** · [验证记录](docs/VALIDATION-1.0.1.md) |
+| **v1.0.3** | 2026-09-14 | BOSS 完整聊天页发送文字与图片；确认消息发送状态；保留待核实停机保护 | **当前版本** · 真实账号文字与图片送达待验收 |
+| **v1.0.2** | 2026-09-14 | BOSS 全国城市映射；城市简称与全称兼容；城市代码可选覆盖 | 历史版本 · [验证记录](docs/VALIDATION-1.0.2.md) |
+| **v1.0.1** | 2026-09-09 | BOSS 驱动与登录流程修复；导航循环检测；识别同端口旧版服务 | 历史版本 · [验证记录](docs/VALIDATION-1.0.1.md) |
 | **v1.0.0** | 2026-09-09 | 四平台求职助手、中文管理界面、AI 筛选、本地记录与单文件 EXE | 历史版本 · [验证记录](docs/VALIDATION.md) |
+
+### v1.0.3 · BOSS 完整聊天页发送修复
+
+1. **先进入完整聊天页。** 点击“立即沟通”后，兼容直接跳转、平台原生问候确认和小窗中转，再发送自定义招呼语及已启用的图片简历，修复弹窗遮挡背景按钮导致的点击超时。
+2. **等待消息发送确认。** 等待发送按钮可用，以本次新增的自身消息及已发送 / 已读状态确认文字和图片；“发送中”不计为成功。
+3. **保留待核实结果。** 发送结果未确认时停止任务，不自动重投；关闭职位详情页的异常不覆盖已经确认的成功结果。
+
+### v1.0.2 · BOSS 全国城市映射
+
+1. **补齐 BOSS 全国城市。** 内置 2026-09-14 获取的官方城市列表，包含 34 个省级分组下的 373 个城市条目，覆盖港澳台条目、自治州、地区和省直管县，运行时无需下载城市列表。
+2. **兼容常见城市写法。** “长沙”“长沙市”以及自治州常见简称与全称均可匹配内置代码。
+3. **保留精确搜索范围。** 高级设置的 `city_codes` 可选覆盖；未识别的城市继续提示补充代码，不扩大为全国搜索。其他三个平台继续使用原有 12 城映射和代码覆盖方式。
 
 ### v1.0.1 · BOSS 登录与刷新兼容修复
 
@@ -242,7 +258,7 @@ Windows 上 AI Key 与企业微信 webhook 使用当前用户的 DPAPI 加密，
 powershell -ExecutionPolicy Bypass -File .\build.ps1
 ```
 
-构建输出：`dist/Get-Jobs-Python-1.0.1.exe`。构建脚本从应用版本常量读取文件名，收集管理界面及 Playwright / Patchright 驱动，不包含个人数据或原始参考仓库。
+构建输出：`dist/Get-Jobs-Python-1.0.3.exe`。构建脚本从应用版本常量读取文件名，收集管理界面及 Playwright / Patchright 驱动，不包含个人数据或原始参考仓库。
 
 ```text
 works/
